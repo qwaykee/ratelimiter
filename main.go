@@ -5,6 +5,7 @@ import (
 
 	"time"
 	"sync"
+	"net/http"
 )
 
 type RateLimiter struct {
@@ -27,8 +28,8 @@ type RateLimiter struct {
 }
 
 type Options struct {
-	Key func(*gin.Context)
-	WhenLimitReached func(*gin.Context)
+	Key func(*gin.Context) string
+	WhenLimitReached func(*gin.Context, *Client)
 	Limit int
 	Rate time.Duration
 }
@@ -38,6 +39,8 @@ type Client struct {
 	Visits int
 	IsBanned bool
 	IsBannedUntil time.Time
+
+	rateLimiter *RateLimiter
 }
 
 func defaultKey(c *gin.Context) string {
@@ -74,43 +77,46 @@ func New(o Options) *RateLimiter {
 		r.Limit = 50
 	}
 
-	if r.Rate.IsZero() {
+	if r.Rate == 0 {
 		r.Rate = 1 * time.Second
 	}
 
 	return r
 }
 
-func (r *RateLimiter) Middleware(c *gin.Context) {
-	key := r.Key(c)
+func (r *RateLimiter) Middleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		key := r.Key(c)
 
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
-
-	if _, ok := r.store[key]; !ok {
-		r.store[key] = &Client{
-			Key: key,
-			Visits: 0,
-		}
-	}
-
-	client := r.store[key]
-
-	if client.Visits >= r.Limit || client.IsBanned {
-		r.WhenLimitReached(c, client)
-		return
-	}
-
-	client.Visits +=  1
-
-	time.AfterFunc(r.Rate, func() {
 		r.mutex.Lock()
 		defer r.mutex.Unlock()
 
-		client.Visits -= 1
-	})
+		if _, ok := r.store[key]; !ok {
+			r.store[key] = &Client{
+				Key: key,
+				Visits: 0,
+				rateLimiter: r,
+			}
+		}
 
-	c.Next()
+		client := r.store[key]
+
+		if client.Visits >= r.Limit || client.IsBanned {
+			r.WhenLimitReached(c, client)
+			return
+		}
+
+		client.Visits +=  1
+
+		time.AfterFunc(r.Rate, func() {
+			r.mutex.Lock()
+			defer r.mutex.Unlock()
+
+			client.Visits -= 1
+		})
+
+		c.Next()
+	}
 }
 
 func (r *RateLimiter) Client(key string) *Client {
@@ -121,24 +127,24 @@ func (r *RateLimiter) Client(key string) *Client {
 }
 
 func (c *Client) Ban(duration time.Duration) {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
+	c.rateLimiter.mutex.Lock()
+	defer c.rateLimiter.mutex.Unlock()
 
 	c.IsBanned = true
-	c.IsBannedUntil = time.Until(duration)
+	c.IsBannedUntil = time.Now().Add(duration)
 
 	time.AfterFunc(duration, func() {
-		mutex.Lock()
-		defer mutex.Unlock()
+		c.rateLimiter.mutex.Lock()
+		defer c.rateLimiter.mutex.Unlock()
 
-		client.Unban()
+		c.Unban()
 	})
 }
 
 func (c *Client) Unban() {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
+	c.rateLimiter.mutex.Lock()
+	defer c.rateLimiter.mutex.Unlock()
 
 	c.IsBanned = false
-	c.IsBannedUntil = nil
+	c.IsBannedUntil = time.Time{}
 }

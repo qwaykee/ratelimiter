@@ -20,7 +20,7 @@ type RateLimiter struct {
 	// Default: 50
 	Limit int
 
-	// Default: 1 * time.Second
+	// Default: time.Second
 	Rate time.Duration
 
 	store map[string]*Client
@@ -38,7 +38,7 @@ type Client struct {
 	Key string
 	Visits int
 	IsBanned bool
-	IsBannedUntil time.Time
+	BannedUntil time.Time
 
 	rateLimiter *RateLimiter
 }
@@ -78,7 +78,7 @@ func New(o Options) *RateLimiter {
 	}
 
 	if r.Rate == 0 {
-		r.Rate = 1 * time.Second
+		r.Rate = time.Second
 	}
 
 	return r
@@ -131,7 +131,7 @@ func (c *Client) Ban(duration time.Duration) {
 	defer c.rateLimiter.mutex.Unlock()
 
 	c.IsBanned = true
-	c.IsBannedUntil = time.Now().Add(duration)
+	c.BannedUntil = time.Now().Add(duration)
 
 	time.AfterFunc(duration, func() {
 		c.rateLimiter.mutex.Lock()
@@ -146,5 +146,5 @@ func (c *Client) Unban() {
 	defer c.rateLimiter.mutex.Unlock()
 
 	c.IsBanned = false
-	c.IsBannedUntil = time.Time{}
+	c.BannedUntil = time.Time{}
 }

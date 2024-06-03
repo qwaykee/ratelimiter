@@ -6,6 +6,7 @@ import (
 	"time"
 	"sync"
 	"net/http"
+	"log"
 )
 
 type RateLimiter struct {
@@ -56,6 +57,8 @@ func Default() *RateLimiter {
 }
 
 func New(o Options) *RateLimiter {
+	log.Println("new rateLimiter created")
+
 	r := &RateLimiter{
 		Key: o.Key,
 		WhenLimitReached: o.WhenLimitReached,
